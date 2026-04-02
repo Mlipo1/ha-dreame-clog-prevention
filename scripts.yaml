@@ -1,0 +1,90 @@
+#CRTL-F search for "YOUR" and replace all entity names with your HA Entities for the Dreame Integration.
+
+
+alias: "Dreame: Deep Clean Room-by-Room"
+icon: mdi:robot-vacuum
+mode: single
+description: "Forces room-by-room cleaning and emptying to prevent bin clogs"
+sequence:
+  # Force Sweeping mode and Strong suction before starting
+  - action: select.select_option
+    data:
+      option: "sweeping"
+    target:
+      entity_id: select.YOUR_CLEANING_MODE_ENTITY
+  - action: select.select_option
+    data:
+      option: "strong"
+    target:
+      entity_id: select.YOUR_SUCTION_LEVEL_ENTITY
+  - delay: "00:00:02"
+
+  # --- START ROOM-BY-ROOM LOOP ---
+  - repeat:
+      for_each:
+        - 1
+        - 2
+        - 3
+        - 4
+        - 5
+        - 6
+        - 7
+        - 8
+      sequence:
+        # 1. CRITICAL CHECK: Ensure base is idle before dispatch
+        - wait_template: >
+            {{ is_state('sensor.YOUR_SELF_WASH_STATUS_ENTITY', 'Idle') and 
+               is_state('sensor.YOUR_AUTO_EMPTY_STATUS_ENTITY', 'Idle') }}
+          timeout: "00:02:00"
+
+        # 2. Dispatch to the specific room
+        - action: dreame_vacuum.vacuum_clean_segment
+          data:
+            segments: "{{ repeat.item | int }}"
+          target:
+            entity_id: vacuum.YOUR_VACUUM_ENTITY
+            
+        # 3. Wait for the vacuum to ACTUALLY leave the dock
+        - wait_template: "{{ not is_state('vacuum.YOUR_VACUUM_ENTITY', 'docked') }}"
+          timeout: "00:05:00"
+          
+        # 4. Wait for the vacuum to finish the room and head home
+        - wait_for_trigger:
+            - entity_id:
+                - vacuum.YOUR_VACUUM_ENTITY
+              to:
+                - returning
+              trigger: state
+          timeout: "01:30:00"
+          continue_on_timeout: false
+          
+        # 5. Wait for it to physically lock into the dock
+        - wait_for_trigger:
+            - entity_id:
+                - vacuum.YOUR_VACUUM_ENTITY
+              to:
+                - docked
+              trigger: state
+          timeout: "00:10:00"
+          continue_on_timeout: false
+          
+        # 6. Wait out the "unavailable" handshake glitch when it docks
+        - wait_template: >
+            {{ not is_state('button.YOUR_AUTO_EMPTY_BUTTON_ENTITY', 'unavailable') and 
+               not is_state('button.YOUR_AUTO_EMPTY_BUTTON_ENTITY', 'unknown') }}
+          timeout: "00:02:00"
+          
+        # 7. Small buffer for electronics
+        - delay: "00:00:05"
+        
+        # 8. Trigger Auto Empty (with error handling so a glitch doesn't kill the script!)
+        - action: button.press
+          data: {}
+          target:
+            entity_id: button.YOUR_AUTO_EMPTY_BUTTON_ENTITY
+          continue_on_error: true
+          
+        # 9. Wait for the Auto Empty cycle to actively start, then finish
+        - delay: "00:00:15"
+        - wait_template: "{{ is_state('sensor.YOUR_AUTO_EMPTY_STATUS_ENTITY', 'Idle') }}"
+          timeout: "00:02:00"
